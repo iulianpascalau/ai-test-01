@@ -1,8 +1,12 @@
 import os
 import json
 import logging
+import asyncio
 from openai import AsyncOpenAI
 import config
+
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
 
 # Configure logging
 log_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'agent_backend.log')
@@ -69,135 +73,186 @@ def get_system_prompt(tools=None):
     return system_prompt
 
 async def process_command(user_command: str):
-    """Sends the command to the LLM and orchestrates execution."""
+    """Sends the command to the LLM and orchestrates multi-turn execution."""
     logger.info(f"Received user command: {user_command}")
     
-    # Define the tools (Execution layer scripts)
-    tools = [
-        {
-            "type": "function",
-            "function": {
-                "name": "execute_send_email",
-                "description": "Sends an onboarding email to a client and adds them to ClickUp.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "email": {
-                            "type": "string",
-                            "description": "The email address of the client to onboard."
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    
+    # 1. MCP Server Setup for Dynamic Tools
+    env = os.environ.copy()
+    env["npm_config_yes"] = "true"
+    env["npm_config_loglevel"] = "error"
+    env["npm_config_update_notifier"] = "false"
+    
+    server_params = StdioServerParameters(
+        command="npx",
+        args=["-y", "@cavort-it-systems/clickup-mcp"],
+        env=env
+    )
+    
+    async def run_agent_loop():
+        logger.info("Initializing MCP connection for tool discovery...")
+        async with stdio_client(server_params) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                
+                # Discover MCP tools
+                mcp_tools_resp = await session.list_tools()
+                
+                # Base custom tools
+                tools = [
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "execute_send_email",
+                            "description": "Sends an onboarding email to a client. (Automatically creates CRM task as well)",
+                            "parameters": {
+                                "type": "object",
+                                "properties": {
+                                    "email": {"type": "string"}
+                                },
+                                "required": ["email"]
+                            }
                         }
-                    },
-                    "required": ["email"]
-                }
-            }
-        }
-    ]
-
-    system_prompt = get_system_prompt(tools)
-
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_command}
-    ]
-
-    try:
-        logger.info("Sending prompt to LLM...")
-        response = await client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=messages,
-            tools=tools,
-            tool_choice="auto"
-        )
-        
-        response_message = response.choices[0].message
-        logger.info(f"Received LLM response. Tool calls: {bool(response_message.tool_calls)}")
-
-        # Handle tool calls if the LLM decides to execute something
-        if response_message.tool_calls:
-            tool_call = response_message.tool_calls[0]
-            if tool_call.function.name == "execute_send_email":
-                args = json.loads(tool_call.function.arguments)
-                email = args.get("email")
+                    }
+                ]
                 
-                logger.info(f"Executing tool: {tool_call.function.name} for email: {email}")
+                # Map external MCP tools to OpenAI format
+                for tool in mcp_tools_resp.tools:
+                    tools.append({
+                        "type": "function",
+                        "function": {
+                            "name": tool.name,
+                            "description": tool.description,
+                            "parameters": tool.inputSchema
+                        }
+                    })
                 
-                base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-                script_path = os.path.join(base_dir, "execution", "send_email.py")
-                template_path = os.path.join(base_dir, "directives", "templates", "onboarding.txt")
+                system_prompt = get_system_prompt(tools)
                 
-                import sys
-                python_exe = sys.executable
-                execution_command = f"{python_exe} {script_path} --to {email} --subject \"Welcome!\" --template {template_path}"
+                messages = [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_command}
+                ]
                 
-                import asyncio
-                logger.info(f"Spawning shell: {execution_command}")
-                
-                # Execute the script asynchronously
-                process = await asyncio.create_subprocess_shell(
-                    execution_command,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
-                )
-                
-                stdout, stderr = await process.communicate()
-                
-                if process.returncode == 0:
-                    logger.info("Email script executed successfully. Spawning ClickUp MCP script...")
-                    mcp_script_path = os.path.join(base_dir, "execution", "clickup_mcp.py")
-                    mcp_command = f"{python_exe} {mcp_script_path} --email {email}"
-                    
-                    logger.info(f"Spawning shell: {mcp_command}")
-                    mcp_process = await asyncio.create_subprocess_shell(
-                        mcp_command,
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE
+                MAX_TURNS = 7
+                for turn in range(MAX_TURNS):
+                    logger.info(f"Agent Loop Turn {turn + 1}: Sending prompt to LLM...")
+                    response = await client.chat.completions.create(
+                        model=MODEL_NAME,
+                        messages=messages,
+                        tools=tools,
+                        tool_choice="auto"
                     )
                     
-                    mcp_stdout, mcp_stderr = await mcp_process.communicate()
+                    msg = response.choices[0].message
                     
-                    if mcp_process.returncode == 0:
-                        logger.info("ClickUp MCP script executed successfully.")
+                    # Convert OpenAI Message object to a safe dict for appending
+                    msg_dict = {"role": "assistant"}
+                    if msg.content:
+                        msg_dict["content"] = msg.content
+                    if msg.tool_calls:
+                        msg_dict["tool_calls"] = []
+                        for tc in msg.tool_calls:
+                            msg_dict["tool_calls"].append({
+                                "id": tc.id,
+                                "type": tc.type,
+                                "function": {
+                                    "name": tc.function.name,
+                                    "arguments": tc.function.arguments
+                                }
+                            })
+                    messages.append(msg_dict)
+                    
+                    if not msg.tool_calls:
+                        logger.info("No tool calls detected. Returning final response to user.")
+                        if msg.content and "execute_function_name_placeholder" in msg.content:
+                            return {"status": "error", "message": "The LLM model leaked a tool placeholder."}
                         return {
                             "status": "success",
-                            "message": f"Successfully executed onboarding and created CRM task for {email}!",
-                            "details": f"Email Output:\n{stdout.decode('utf-8').strip()}\n\nClickUp Output:\n{mcp_stdout.decode('utf-8').strip()}",
-                            "command_staged": f"{execution_command}\n{mcp_command}"
+                            "message": msg.content or "Done."
                         }
-                    else:
-                        logger.error(f"ClickUp script failed with code {mcp_process.returncode}: {mcp_stderr.decode('utf-8')} | Stdout: {mcp_stdout.decode('utf-8')}")
-                        return {
-                            "status": "error",
-                            "message": f"Email sent successfully, but ClickUp task creation failed for {email}.",
-                            "details": mcp_stderr.decode('utf-8').strip()
-                        }
-                else:
-                    logger.error(f"Script failed with code {process.returncode}: {stderr.decode('utf-8')}")
-                    return {
-                        "status": "error",
-                        "message": f"Execution failed for {email}.",
-                        "details": stderr.decode('utf-8').strip()
-                    }
-        
-        content = response_message.content or ""
-        
-        # Fallback for LiteLLM tool leaking bug
-        if "execute_function_name_placeholder" in content:
-            logger.warning("LiteLLM tool placeholder leaked into content.")
-            return {
-                "status": "error",
-                "message": "The LLM model failed to trigger the internal tool correctly. Please try again."
-            }
-
-        # If no tool was called, return the text response
-        logger.info("No tool called. Returning raw text response.")
-        return {
-            "status": "success",
-            "message": content
-        }
-
+                        
+                    # Handle Tool Calls
+                    for tool_call in msg.tool_calls:
+                        tool_name = tool_call.function.name
+                        args_str = tool_call.function.arguments
+                        logger.info(f"Executing tool: {tool_name} with args: {args_str}")
+                        
+                        try:
+                            args = json.loads(args_str)
+                        except Exception:
+                            args = {}
+                            
+                        if tool_name == "execute_send_email":
+                            email = args.get("email")
+                            script_path = os.path.join(base_dir, "execution", "send_email.py")
+                            template_path = os.path.join(base_dir, "directives", "templates", "onboarding.txt")
+                            
+                            import sys
+                            python_exe = sys.executable
+                            execution_command = f"{python_exe} {script_path} --to {email} --subject \"Welcome!\" --template {template_path}"
+                            
+                            process = await asyncio.create_subprocess_shell(
+                                execution_command,
+                                stdout=asyncio.subprocess.PIPE,
+                                stderr=asyncio.subprocess.PIPE
+                            )
+                            stdout, stderr = await process.communicate()
+                            
+                            if process.returncode == 0:
+                                # Chain the old clickup_mcp.py script to maintain original atomic flow
+                                mcp_script_path = os.path.join(base_dir, "execution", "clickup_mcp.py")
+                                mcp_command = f"{python_exe} {mcp_script_path} --email {email}"
+                                mcp_process = await asyncio.create_subprocess_shell(
+                                    mcp_command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+                                )
+                                mcp_stdout, mcp_stderr = await mcp_process.communicate()
+                                
+                                if mcp_process.returncode == 0:
+                                    res_content = "Email sent and CRM task created successfully."
+                                else:
+                                    res_content = f"Email sent, but ClickUp task failed: {mcp_stderr.decode('utf-8')}"
+                            else:
+                                res_content = f"Email script failed: {stderr.decode('utf-8')}"
+                            
+                            messages.append({
+                                "role": "tool",
+                                "tool_call_id": tool_call.id,
+                                "name": tool_name,
+                                "content": res_content
+                            })
+                        else:
+                            # Dynamically forward any other tool directly to the running MCP Server!
+                            try:
+                                result = await session.call_tool(tool_name, args)
+                                content_str = "\n".join([c.text for c in result.content if hasattr(c, 'text')])
+                                messages.append({
+                                    "role": "tool",
+                                    "tool_call_id": tool_call.id,
+                                    "name": tool_name,
+                                    "content": content_str
+                                })
+                                logger.info(f"MCP Tool returned successfully.")
+                            except Exception as e:
+                                logger.error(f"MCP Tool Error: {str(e)}")
+                                messages.append({
+                                    "role": "tool",
+                                    "tool_call_id": tool_call.id,
+                                    "name": tool_name,
+                                    "content": f"MCP Tool Error: {str(e)}"
+                                })
+                                
+                return {
+                    "status": "success",
+                    "message": "Max tool turns reached. Final response: " + (msg.content or "None")
+                }
+                
+    try:
+        # Prevent the whole request from hanging if MCP stalls
+        return await asyncio.wait_for(run_agent_loop(), timeout=180.0)
+    except asyncio.TimeoutError:
+        return {"status": "error", "message": "The orchestrator timed out during execution."}
     except Exception as e:
         logger.error(f"Error during orchestrator process_command: {str(e)}", exc_info=True)
-        return {
-            "status": "error",
-            "message": str(e)
-        }
+        return {"status": "error", "message": f"Server Error: {str(e)}"}
