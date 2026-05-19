@@ -4,8 +4,15 @@
 
 set -e
 
-echo "1. Pulling latest code..."
-git pull origin main || echo "Warning: git pull failed or not a git repository. Continuing deployment..."
+echo "1. Pulling latest release tag..."
+git fetch --tags origin || echo "Warning: git fetch failed or not a git repository."
+LATEST_TAG=$(git describe --tags $(git rev-list --tags --max-count=1) 2>/dev/null || true)
+if [ -n "$LATEST_TAG" ]; then
+    echo "Checking out latest tag: $LATEST_TAG"
+    git checkout "$LATEST_TAG" || echo "Warning: git checkout failed."
+else
+    echo "Warning: No tags found. Continuing deployment with current state..."
+fi
 
 echo "2. Setting up backend..."
 cd backend
