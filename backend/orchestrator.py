@@ -92,31 +92,18 @@ async def process_command(user_command: str):
                     "required": ["email"]
                 }
             }
-        },
-        {
-            "type": "function",
-            "function": {
-                "name": "create_and_run_script",
-                "description": "Creates a new Python script in the execution directory and runs it. Use this to fetch data, interact with APIs (like ClickUp via requests), or perform logic.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "script_name": {
-                            "type": "string",
-                            "description": "The name of the file, e.g., 'get_clickup_tasks.py'"
-                        },
-                        "code": {
-                            "type": "string",
-                            "description": "The complete Python code to execute. You can use os.environ to access API keys like CLICKUP_API_TOKEN."
-                        }
-                    },
-                    "required": ["script_name", "code"]
-                }
-            }
         }
     ]
     
     system_prompt = get_system_prompt(tools)
+    system_prompt += (
+        "\n\nCRITICAL INSTRUCTION FOR FETCHING DATA:\n"
+        "If you need to fetch data from ClickUp or execute custom logic, DO NOT try to use a JSON tool call. "
+        "Instead, WRITE A PYTHON SCRIPT in a standard markdown block starting with ```python\n. "
+        "The system will automatically execute your script and feed the output back to you so you can read it. "
+        "You can access the ClickUp API token via os.environ.get('CLICKUP_API_TOKEN'). "
+        "Always use print() to output the data you want to read."
+    )
     
     messages = [
         {"role": "system", "content": system_prompt},
@@ -152,7 +139,35 @@ async def process_command(user_command: str):
             messages.append(msg_dict)
             
             if not msg.tool_calls:
-                logger.info("No tool calls detected. Returning final response to user.")
+                # Check if the LLM wrote a python script instead
+                import re
+                if msg.content and "```python" in msg.content:
+                    logger.info("Python code block detected in response. Executing script...")
+                    code_match = re.search(r"```python\n(.*?)\n```", msg.content, re.DOTALL)
+                    if code_match:
+                        code = code_match.group(1)
+                        script_path = os.path.join(base_dir, "execution", "agent_temp_script.py")
+                        
+                        with open(script_path, "w") as f:
+                            f.write(code)
+                        
+                        import sys
+                        python_exe = sys.executable
+                        process = await asyncio.create_subprocess_shell(
+                            f"{python_exe} {script_path}",
+                            stdout=asyncio.subprocess.PIPE,
+                            stderr=asyncio.subprocess.PIPE,
+                            cwd=base_dir
+                        )
+                        stdout, stderr = await process.communicate()
+                        
+                        res_content = f"[System: Python Script Execution Results]\nStdout:\n{stdout.decode('utf-8')}\nStderr:\n{stderr.decode('utf-8')}"
+                        logger.info(f"Script executed. Feeding output back to LLM. Stdout length: {len(stdout)}")
+                        messages.append({"role": "user", "content": res_content})
+                        continue # Continue the loop so the LLM can read the output!
+                
+                # If no python block and no tool calls, it's the final answer
+                logger.info("No tool calls or python scripts detected. Returning final response to user.")
                 if msg.content and "execute_function_name_placeholder" in msg.content:
                     return {"status": "error", "message": "The LLM model leaked a tool placeholder."}
                 return {
@@ -204,35 +219,6 @@ async def process_command(user_command: str):
                         "tool_call_id": tool_call.id,
                         "name": tool_name,
                         "content": res_content
-                    })
-                    
-                elif tool_name == "create_and_run_script":
-                    script_name = args.get("script_name", "temp_script.py")
-                    code = args.get("code", "")
-                    
-                    # Prevent directory traversal
-                    script_name = os.path.basename(script_name)
-                    script_path = os.path.join(base_dir, "execution", script_name)
-                    
-                    with open(script_path, "w") as f:
-                        f.write(code)
-                    
-                    import sys
-                    python_exe = sys.executable
-                    process = await asyncio.create_subprocess_shell(
-                        f"{python_exe} {script_path}",
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE,
-                        cwd=base_dir
-                    )
-                    stdout, stderr = await process.communicate()
-                    
-                    res_content = f"Script Output:\n{stdout.decode('utf-8')}\nErrors:\n{stderr.decode('utf-8')}"
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": tool_call.id,
-                        "name": tool_name,
-                        "content": res_content.strip()
                     })
                 else:
                     messages.append({
