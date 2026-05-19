@@ -4,14 +4,25 @@
 
 set -e
 
-echo "1. Pulling latest release tag..."
+TARGET=${1:-latest}
+
+echo "1. Checking out target: $TARGET..."
 git fetch --tags origin || echo "Warning: git fetch failed or not a git repository."
-LATEST_TAG=$(git describe --tags $(git rev-list --tags --max-count=1) 2>/dev/null || true)
-if [ -n "$LATEST_TAG" ]; then
-    echo "Checking out latest tag: $LATEST_TAG"
-    git checkout "$LATEST_TAG" || echo "Warning: git checkout failed."
+git fetch origin || true
+
+if [ "$TARGET" = "latest" ]; then
+    LATEST_TAG=$(git describe --tags $(git rev-list --tags --max-count=1) 2>/dev/null || true)
+    if [ -n "$LATEST_TAG" ]; then
+        echo "Checking out latest tag: $LATEST_TAG"
+        git checkout "$LATEST_TAG" || echo "Warning: git checkout failed."
+    else
+        echo "Warning: No tags found. Continuing deployment with current state..."
+    fi
 else
-    echo "Warning: No tags found. Continuing deployment with current state..."
+    echo "Checking out specified target: $TARGET"
+    git checkout "$TARGET" || echo "Warning: git checkout failed."
+    # If it's a branch, attempt to pull the latest changes
+    git pull origin "$TARGET" 2>/dev/null || true
 fi
 
 echo "2. Setting up backend..."
