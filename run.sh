@@ -22,6 +22,7 @@ if [ ! -d ".venv" ]; then
 fi
 source .venv/bin/activate
 pip install -r requirements.txt
+pip install -r ../requirements.txt
 cd ..
 
 echo "3. Building frontend..."
