@@ -16,8 +16,8 @@ async def main():
     parser.add_argument('--email', required=True, help="Email address of the client (Task Name)")
     args = parser.parse_args()
 
-    if "CLICKUP_API_KEY" not in os.environ:
-        sys.stderr.write("Error: CLICKUP_API_KEY is not set in the .env file. Please configure it first.\n")
+    if "CLICKUP_API_TOKEN" not in os.environ:
+        sys.stderr.write("Error: CLICKUP_API_TOKEN is not set in the .env file. Please configure it first.\n")
         sys.exit(1)
 
     print("Spawning ClickUp MCP Server via npx...")
@@ -28,7 +28,7 @@ async def main():
     
     server_params = StdioServerParameters(
         command="npx",
-        args=["-y", "@modelcontextprotocol/server-clickup"],
+        args=["-y", "@cavort-it-systems/clickup-mcp"],
         env=env
     )
 
