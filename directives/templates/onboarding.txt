@@ -1,0 +1,13 @@
+Hi there,
+
+Welcome to $COMPANY_NAME! We are thrilled to have you onboard. 
+
+Here is a little background on us: we are dedicated to providing top-tier service and ensuring your success from day one. Our team has decades of experience and we're excited to partner with you.
+
+To get things started properly, we'd love to schedule a kickoff call with you. Please book a time that works best for you here:
+$CALENDAR_LINK
+
+Looking forward to speaking with you!
+
+Best regards,
+The $COMPANY_NAME Team
