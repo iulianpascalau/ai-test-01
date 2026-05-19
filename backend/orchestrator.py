@@ -15,10 +15,16 @@ logger = logging.getLogger("orchestrator")
 
 try:
     import subprocess
-    git_tag = subprocess.check_output(["git", "describe", "--tags", "--always"], stderr=subprocess.STDOUT, text=True).strip()
+    root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    git_tag = subprocess.check_output(
+        ["git", "describe", "--tags", "--always"], 
+        stderr=subprocess.STDOUT, 
+        text=True, 
+        cwd=root_dir
+    ).strip()
     logger.info(f"========== Agentic Workspace Backend Started | Version: {git_tag} ==========")
-except Exception:
-    logger.info("========== Agentic Workspace Backend Started | Version: Unknown ==========")
+except Exception as e:
+    logger.info(f"========== Agentic Workspace Backend Started | Version: Unknown (Error: {e}) ==========")
 
 LITELLM_BASE_URL = config.LITELLM_BASE_URL
 LITELLM_API_KEY = config.LITELLM_API_KEY
@@ -136,13 +142,34 @@ async def process_command(user_command: str):
                 stdout, stderr = await process.communicate()
                 
                 if process.returncode == 0:
-                    logger.info("Script executed successfully.")
-                    return {
-                        "status": "success",
-                        "message": f"Successfully executed onboarding for {email}!",
-                        "details": stdout.decode('utf-8').strip(),
-                        "command_staged": execution_command
-                    }
+                    logger.info("Email script executed successfully. Spawning ClickUp MCP script...")
+                    mcp_script_path = os.path.join(base_dir, "execution", "clickup_mcp.py")
+                    mcp_command = f"{python_exe} {mcp_script_path} --email {email}"
+                    
+                    logger.info(f"Spawning shell: {mcp_command}")
+                    mcp_process = await asyncio.create_subprocess_shell(
+                        mcp_command,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE
+                    )
+                    
+                    mcp_stdout, mcp_stderr = await mcp_process.communicate()
+                    
+                    if mcp_process.returncode == 0:
+                        logger.info("ClickUp MCP script executed successfully.")
+                        return {
+                            "status": "success",
+                            "message": f"Successfully executed onboarding and created CRM task for {email}!",
+                            "details": f"Email Output:\n{stdout.decode('utf-8').strip()}\n\nClickUp Output:\n{mcp_stdout.decode('utf-8').strip()}",
+                            "command_staged": f"{execution_command}\n{mcp_command}"
+                        }
+                    else:
+                        logger.error(f"ClickUp script failed with code {mcp_process.returncode}: {mcp_stderr.decode('utf-8')}")
+                        return {
+                            "status": "error",
+                            "message": f"Email sent successfully, but ClickUp task creation failed for {email}.",
+                            "details": mcp_stderr.decode('utf-8').strip()
+                        }
                 else:
                     logger.error(f"Script failed with code {process.returncode}: {stderr.decode('utf-8')}")
                     return {
