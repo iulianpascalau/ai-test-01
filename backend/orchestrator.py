@@ -13,6 +13,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger("orchestrator")
 
+try:
+    import subprocess
+    git_tag = subprocess.check_output(["git", "describe", "--tags", "--always"], stderr=subprocess.STDOUT, text=True).strip()
+    logger.info(f"========== Agentic Workspace Backend Started | Version: {git_tag} ==========")
+except Exception:
+    logger.info("========== Agentic Workspace Backend Started | Version: Unknown ==========")
+
 LITELLM_BASE_URL = config.LITELLM_BASE_URL
 LITELLM_API_KEY = config.LITELLM_API_KEY
 MODEL_NAME = config.MODEL_NAME

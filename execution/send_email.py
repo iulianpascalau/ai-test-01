@@ -15,28 +15,35 @@ load_dotenv()
 # If modifying these scopes, delete the file token.json.
 SCOPES = ['https://www.googleapis.com/auth/gmail.send']
 
+import sys
+
+# Define absolute paths for credentials
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+TOKEN_PATH = os.path.join(BASE_DIR, 'token.json')
+CREDS_PATH = os.path.join(BASE_DIR, 'credentials.json')
+
 def send_email(to_email, subject, body):
     """Shows basic usage of the Gmail API to send an email."""
     creds = None
     # The file token.json stores the user's access and refresh tokens, and is
     # created automatically when the authorization flow completes for the first
     # time.
-    if os.path.exists('token.json') and os.path.getsize('token.json') > 2:
-        creds = Credentials.from_authorized_user_file('token.json', SCOPES)
+    if os.path.exists(TOKEN_PATH) and os.path.getsize(TOKEN_PATH) > 2:
+        creds = Credentials.from_authorized_user_file(TOKEN_PATH, SCOPES)
     
     # If there are no (valid) credentials available, let the user log in.
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
         else:
-            if not os.path.exists('credentials.json') or os.path.getsize('credentials.json') <= 2:
+            if not os.path.exists(CREDS_PATH) or os.path.getsize(CREDS_PATH) <= 2:
                 print("Error: credentials.json is empty or missing. Please configure Google OAuth credentials first.")
-                return None
+                sys.exit(1)
             flow = InstalledAppFlow.from_client_secrets_file(
-                'credentials.json', SCOPES)
+                CREDS_PATH, SCOPES)
             creds = flow.run_local_server(port=0)
         # Save the credentials for the next run
-        with open('token.json', 'w') as token:
+        with open(TOKEN_PATH, 'w') as token:
             token.write(creds.to_json())
 
     try:
@@ -63,7 +70,7 @@ def send_email(to_email, subject, body):
 
     except Exception as error:
         print(f'An error occurred: {error}')
-        return None
+        sys.exit(1)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Send an email via Gmail API.')
