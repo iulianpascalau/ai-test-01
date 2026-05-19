@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { Send, TerminalSquare, LogOut, Loader2, Bot } from 'lucide-react';
 
-const API_URL = 'http://localhost:8000/api';
+const API_URL = `http://${window.location.hostname}:8000/api`;
 
 function App() {
   const [token, setToken] = useState(localStorage.getItem('token'));
