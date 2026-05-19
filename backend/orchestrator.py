@@ -112,7 +112,9 @@ async def process_command(user_command: str):
                 script_path = os.path.join(base_dir, "execution", "send_email.py")
                 template_path = os.path.join(base_dir, "directives", "templates", "onboarding.txt")
                 
-                execution_command = f"python {script_path} --to {email} --subject \"Welcome!\" --template {template_path}"
+                import sys
+                python_exe = sys.executable
+                execution_command = f"{python_exe} {script_path} --to {email} --subject \"Welcome!\" --template {template_path}"
                 
                 import asyncio
                 logger.info(f"Spawning shell: {execution_command}")
