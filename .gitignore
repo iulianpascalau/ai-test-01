@@ -1,6 +1,12 @@
 # Temporary files
 .tmp/
 
+# IDE directories
+.idea/
+
+# venv directories
+.venv/
+
 # Environment variables
 .env
 

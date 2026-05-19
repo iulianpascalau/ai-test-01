@@ -47,7 +47,7 @@ After=network.target
 [Service]
 User=$USER_NAME
 WorkingDirectory=$PROJECT_DIR/backend
-Environment="PATH=$PROJECT_DIR/backend/.venv/bin"
+Environment="PATH=$PROJECT_DIR/backend/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 EnvironmentFile=$PROJECT_DIR/.env
 ExecStart=$PROJECT_DIR/backend/.venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000
 
