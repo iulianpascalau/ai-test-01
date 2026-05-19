@@ -78,31 +78,17 @@ async def process_command(user_command: str):
     
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     
-    tools = [
-        {
-            "type": "function",
-            "function": {
-                "name": "execute_send_email",
-                "description": "Sends an onboarding email to a client. (Automatically creates CRM task as well)",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "email": {"type": "string"}
-                    },
-                    "required": ["email"]
-                }
-            }
-        }
-    ]
+    # We remove the OpenAI tools array because it causes LiteLLM to inject 
+    # a massive, complex JSON prompt that breaks quantized local models.
     
-    system_prompt = get_system_prompt(tools)
+    system_prompt = get_system_prompt()
     system_prompt += (
-        "\n\nCRITICAL INSTRUCTION FOR FETCHING DATA:\n"
-        "If you need to fetch data from ClickUp or execute custom logic, DO NOT try to use a JSON tool call. "
-        "Instead, WRITE A PYTHON SCRIPT in a standard markdown block starting with ```python\n. "
-        "The system will automatically execute your script and feed the output back to you so you can read it. "
-        "You can access the ClickUp API token via os.environ.get('CLICKUP_API_TOKEN'). "
-        "Always use print() to output the data you want to read."
+        "\n\nCRITICAL INSTRUCTIONS FOR ACTIONS:\n"
+        "1. TO FETCH DATA: If you need to fetch data from ClickUp or run logic, WRITE A PYTHON SCRIPT in a markdown block starting with ```python\n. "
+        "The system will execute it and return the output to you. You can use os.environ.get('CLICKUP_API_TOKEN'). "
+        "Use print() to output the data you want to see.\n"
+        "2. TO SEND AN EMAIL: If the user explicitly asks to onboard a client, output exactly this text: "
+        "[EXECUTE_EMAIL: email@example.com]. The system will run the onboarding script."
     )
     
     messages = [
@@ -116,117 +102,90 @@ async def process_command(user_command: str):
             logger.info(f"Agent Loop Turn {turn + 1}: Sending prompt to LLM...")
             response = await client.chat.completions.create(
                 model=MODEL_NAME,
-                messages=messages,
-                tools=tools,
-                tool_choice="auto"
+                messages=messages
+                # Notice: No tools=tools parameter! 
+                # This prevents LiteLLM from injecting the confusing JSON schema prompt.
             )
             
             msg = response.choices[0].message
             msg_dict = {"role": "assistant"}
             if msg.content:
                 msg_dict["content"] = msg.content
-            if msg.tool_calls:
-                msg_dict["tool_calls"] = []
-                for tc in msg.tool_calls:
-                    msg_dict["tool_calls"].append({
-                        "id": tc.id,
-                        "type": tc.type,
-                        "function": {
-                            "name": tc.function.name,
-                            "arguments": tc.function.arguments
-                        }
-                    })
             messages.append(msg_dict)
             
-            if not msg.tool_calls:
-                # Check if the LLM wrote a python script instead
-                import re
-                if msg.content and "```python" in msg.content:
-                    logger.info("Python code block detected in response. Executing script...")
-                    code_match = re.search(r"```python\n(.*?)\n```", msg.content, re.DOTALL)
-                    if code_match:
-                        code = code_match.group(1)
-                        script_path = os.path.join(base_dir, "execution", "agent_temp_script.py")
-                        
-                        with open(script_path, "w") as f:
-                            f.write(code)
-                        
-                        import sys
-                        python_exe = sys.executable
-                        process = await asyncio.create_subprocess_shell(
-                            f"{python_exe} {script_path}",
-                            stdout=asyncio.subprocess.PIPE,
-                            stderr=asyncio.subprocess.PIPE,
-                            cwd=base_dir
-                        )
-                        stdout, stderr = await process.communicate()
-                        
-                        res_content = f"[System: Python Script Execution Results]\nStdout:\n{stdout.decode('utf-8')}\nStderr:\n{stderr.decode('utf-8')}"
-                        logger.info(f"Script executed. Feeding output back to LLM. Stdout length: {len(stdout)}")
-                        messages.append({"role": "user", "content": res_content})
-                        continue # Continue the loop so the LLM can read the output!
-                
-                # If no python block and no tool calls, it's the final answer
-                logger.info("No tool calls or python scripts detected. Returning final response to user.")
-                if msg.content and "execute_function_name_placeholder" in msg.content:
-                    return {"status": "error", "message": "The LLM model leaked a tool placeholder."}
-                return {
-                    "status": "success",
-                    "message": msg.content or "Done."
-                }
-                
-            for tool_call in msg.tool_calls:
-                tool_name = tool_call.function.name
-                args_str = tool_call.function.arguments
-                logger.info(f"Executing tool: {tool_name}")
-                
-                try:
-                    args = json.loads(args_str)
-                except Exception:
-                    args = {}
+            # 1. Check for Python script block
+            import re
+            if msg.content and "```python" in msg.content:
+                logger.info("Python code block detected in response. Executing script...")
+                code_match = re.search(r"```python\n(.*?)\n```", msg.content, re.DOTALL)
+                if code_match:
+                    code = code_match.group(1)
+                    script_path = os.path.join(base_dir, "execution", "agent_temp_script.py")
                     
-                if tool_name == "execute_send_email":
-                    email = args.get("email")
-                    script_path = os.path.join(base_dir, "execution", "send_email.py")
-                    template_path = os.path.join(base_dir, "directives", "templates", "onboarding.txt")
+                    with open(script_path, "w") as f:
+                        f.write(code)
                     
                     import sys
                     python_exe = sys.executable
-                    execution_command = f"{python_exe} {script_path} --to {email} --subject \"Welcome!\" --template {template_path}"
-                    
                     process = await asyncio.create_subprocess_shell(
-                        execution_command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+                        f"{python_exe} {script_path}",
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE,
+                        cwd=base_dir
                     )
                     stdout, stderr = await process.communicate()
                     
-                    if process.returncode == 0:
-                        mcp_script_path = os.path.join(base_dir, "execution", "clickup_mcp.py")
-                        mcp_command = f"{python_exe} {mcp_script_path} --email {email}"
-                        mcp_process = await asyncio.create_subprocess_shell(
-                            mcp_command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-                        )
-                        mcp_stdout, mcp_stderr = await mcp_process.communicate()
-                        
-                        if mcp_process.returncode == 0:
-                            res_content = "Email sent and CRM task created successfully."
-                        else:
-                            res_content = f"Email sent, but ClickUp task failed: {mcp_stderr.decode('utf-8')}"
-                    else:
-                        res_content = f"Email script failed: {stderr.decode('utf-8')}"
+                    res_content = f"[System: Python Script Execution Results]\nStdout:\n{stdout.decode('utf-8')}\nStderr:\n{stderr.decode('utf-8')}"
+                    logger.info("Script executed. Feeding output back to LLM.")
+                    messages.append({"role": "user", "content": res_content})
+                    continue
+            
+            # 2. Check for Email Tool pattern
+            email_match = re.search(r"\[EXECUTE_EMAIL:\s*([^\]]+)\]", msg.content) if msg.content else None
+            if email_match:
+                email = email_match.group(1).strip()
+                logger.info(f"Manual email tool call detected for: {email}")
+                script_path = os.path.join(base_dir, "execution", "send_email.py")
+                template_path = os.path.join(base_dir, "directives", "templates", "onboarding.txt")
+                
+                import sys
+                python_exe = sys.executable
+                execution_command = f"{python_exe} {script_path} --to {email} --subject \"Welcome!\" --template {template_path}"
+                
+                process = await asyncio.create_subprocess_shell(
+                    execution_command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+                )
+                stdout, stderr = await process.communicate()
+                
+                if process.returncode == 0:
+                    mcp_script_path = os.path.join(base_dir, "execution", "clickup_mcp.py")
+                    mcp_command = f"{python_exe} {mcp_script_path} --email {email}"
+                    mcp_process = await asyncio.create_subprocess_shell(
+                        mcp_command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+                    )
+                    mcp_stdout, mcp_stderr = await mcp_process.communicate()
                     
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": tool_call.id,
-                        "name": tool_name,
-                        "content": res_content
-                    })
+                    if mcp_process.returncode == 0:
+                        res_content = f"[System: Email sent and CRM task created successfully for {email}]"
+                    else:
+                        res_content = f"[System: Email sent, but ClickUp task failed: {mcp_stderr.decode('utf-8')}]"
                 else:
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": tool_call.id,
-                        "name": tool_name,
-                        "content": "Error: Unknown tool."
-                    })
+                    res_content = f"[System: Email script failed: {stderr.decode('utf-8')}]"
+                
+                messages.append({"role": "user", "content": res_content})
+                continue
+            
+            # If no tools match, return final response
+            logger.info("No tool calls or python scripts detected. Returning final response to user.")
+            return {
+                "status": "success",
+                "message": msg.content or "Done."
+            }
+                        
+        return {
+            "status": "success",
+            "message": "Max tool turns reached. Final response: " + (msg.content or "None")
+        }
                         
         return {
             "status": "success",
