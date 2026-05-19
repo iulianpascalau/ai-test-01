@@ -21,18 +21,26 @@ async def main():
         sys.exit(1)
 
     print("Spawning ClickUp MCP Server via npx...")
+    env = os.environ.copy()
+    env["npm_config_yes"] = "true"
+    env["npm_config_loglevel"] = "error"
+    env["npm_config_update_notifier"] = "false"
+    
     server_params = StdioServerParameters(
         command="npx",
         args=["-y", "@modelcontextprotocol/server-clickup"],
-        env=os.environ.copy()
+        env=env
     )
 
-    try:
+    async def run_mcp():
+        sys.stderr.write("Starting stdio_client...\n")
         async with stdio_client(server_params) as (read, write):
+            sys.stderr.write("Client initialized. Creating session...\n")
             async with ClientSession(read, write) as session:
+                sys.stderr.write("Initializing session handshake...\n")
                 await session.initialize()
                 
-                print(f"Calling MCP tool 'clickup_create_task' for {args.email}...")
+                sys.stderr.write(f"Calling MCP tool 'clickup_create_task' for {args.email}...\n")
                 result = await session.call_tool("clickup_create_task", {
                     "list_id": "901218146714",
                     "name": args.email,
@@ -40,6 +48,13 @@ async def main():
                 })
                 
                 print(f"Success! ClickUp task created: {result}")
+
+    try:
+        # Prevent the script from hanging forever if npx gets stuck
+        await asyncio.wait_for(run_mcp(), timeout=45.0)
+    except asyncio.TimeoutError:
+        sys.stderr.write("Failed: The MCP server timed out after 45 seconds (npx might be stuck or installing). Please try again.\n")
+        sys.exit(1)
     except Exception as e:
         sys.stderr.write(f"Failed to create ClickUp task via MCP: {e}\n")
         sys.exit(1)
