@@ -164,7 +164,7 @@ async def process_command(user_command: str):
                             "command_staged": f"{execution_command}\n{mcp_command}"
                         }
                     else:
-                        logger.error(f"ClickUp script failed with code {mcp_process.returncode}: {mcp_stderr.decode('utf-8')}")
+                        logger.error(f"ClickUp script failed with code {mcp_process.returncode}: {mcp_stderr.decode('utf-8')} | Stdout: {mcp_stdout.decode('utf-8')}")
                         return {
                             "status": "error",
                             "message": f"Email sent successfully, but ClickUp task creation failed for {email}.",

@@ -17,7 +17,7 @@ async def main():
     args = parser.parse_args()
 
     if "CLICKUP_API_KEY" not in os.environ:
-        print("Error: CLICKUP_API_KEY is not set in the .env file. Please configure it first.")
+        sys.stderr.write("Error: CLICKUP_API_KEY is not set in the .env file. Please configure it first.\n")
         sys.exit(1)
 
     print("Spawning ClickUp MCP Server via npx...")
@@ -41,7 +41,7 @@ async def main():
                 
                 print(f"Success! ClickUp task created: {result}")
     except Exception as e:
-        print(f"Failed to create ClickUp task via MCP: {e}")
+        sys.stderr.write(f"Failed to create ClickUp task via MCP: {e}\n")
         sys.exit(1)
 
 if __name__ == "__main__":
