@@ -63,12 +63,12 @@ def get_system_prompt(tools=None):
     if tools:
         tool_names = [t["function"]["name"] for t in tools]
         system_prompt += (
-            "CRITICAL INSTRUCTION:\n"
+            "CRITICAL INSTRUCTION FOR TOOL CALLING:\n"
             f"You have access to the following function tools: {', '.join(tool_names)}. "
-            "The directives above may mention running python scripts, bash commands, or MCP tools directly, "
-            "BUT you must map those instructions to one of the provided function tools. "
-            "DO NOT attempt to write bash commands, run python manually, or return placeholder text. "
-            "If a provided tool matches the intent of the directive, JUST CALL THE TOOL."
+            "When the user asks you to perform an action or fetch data, YOU MUST USE A TOOL. "
+            "Do not output raw JSON or code blocks in your text response. Use the native tool calling format. "
+            "If you need to fetch ClickUp data, use the clickup tools. "
+            "If a provided tool matches the intent of the user, JUST CALL THE TOOL natively."
         )
     return system_prompt
 
