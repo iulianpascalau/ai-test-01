@@ -73,7 +73,7 @@ function Login({ onLogin }) {
 
 function Workspace({ token, onLogout }) {
   const [messages, setMessages] = useState([
-    { id: 1, role: 'agent', content: 'Agentic Environment initialized. Awaiting directives.' }
+    { id: 1, role: 'agent', content: 'Agentic Environment initialized. Awaiting directives.', timestamp: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) }
   ]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -91,7 +91,7 @@ function Workspace({ token, onLogout }) {
     e.preventDefault();
     if (!input.trim() || loading) return;
 
-    const userMessage = { id: Date.now(), role: 'user', content: input };
+    const userMessage = { id: Date.now(), role: 'user', content: input, timestamp: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) };
     setMessages(prev => [...prev, userMessage]);
     setInput('');
     setLoading(true);
@@ -112,14 +112,15 @@ function Workspace({ token, onLogout }) {
       const agentMessage = {
         id: Date.now() + 1,
         role: 'agent',
-        content: displayContent
+        content: displayContent,
+        timestamp: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})
       };
       
       setMessages(prev => [...prev, agentMessage]);
       
     } catch (err) {
       if (err.response?.status === 401) onLogout();
-      setMessages(prev => [...prev, { id: Date.now()+1, role: 'agent', content: `Error: ${err.message}` }]);
+      setMessages(prev => [...prev, { id: Date.now()+1, role: 'agent', content: `Error: ${err.message}`, timestamp: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) }]);
     } finally {
       setLoading(false);
     }
@@ -141,9 +142,10 @@ function Workspace({ token, onLogout }) {
         <div className="chat-history">
           {messages.map(msg => (
             <div key={msg.id} className={`message ${msg.role}`}>
-              <div className="message-meta">
+              <div className="message-meta" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 {msg.role === 'agent' ? <Bot size={14} /> : null}
-                {msg.role === 'agent' ? 'System' : 'You'}
+                <span>{msg.role === 'agent' ? 'System' : 'You'}</span>
+                <span style={{ marginLeft: 'auto', fontSize: '11px', opacity: 0.5 }}>{msg.timestamp}</span>
               </div>
               <div style={{ whiteSpace: 'pre-wrap' }}>{msg.content}</div>
             </div>

@@ -1,7 +1,17 @@
 import os
 import json
+import logging
 from openai import AsyncOpenAI
 import config
+
+# Configure logging
+log_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'agent_backend.log')
+logging.basicConfig(
+    filename=log_file,
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger("orchestrator")
 
 LITELLM_BASE_URL = config.LITELLM_BASE_URL
 LITELLM_API_KEY = config.LITELLM_API_KEY
@@ -47,6 +57,7 @@ def get_system_prompt(tools=None):
 
 async def process_command(user_command: str):
     """Sends the command to the LLM and orchestrates execution."""
+    logger.info(f"Received user command: {user_command}")
     
     # Define the tools (Execution layer scripts)
     tools = [
@@ -77,6 +88,7 @@ async def process_command(user_command: str):
     ]
 
     try:
+        logger.info("Sending prompt to LLM...")
         response = await client.chat.completions.create(
             model=MODEL_NAME,
             messages=messages,
@@ -85,6 +97,7 @@ async def process_command(user_command: str):
         )
         
         response_message = response.choices[0].message
+        logger.info(f"Received LLM response. Tool calls: {bool(response_message.tool_calls)}")
 
         # Handle tool calls if the LLM decides to execute something
         if response_message.tool_calls:
@@ -93,37 +106,61 @@ async def process_command(user_command: str):
                 args = json.loads(tool_call.function.arguments)
                 email = args.get("email")
                 
-                # In production, this would trigger subprocess.Popen to run the script
-                # and stream logs back to the frontend.
+                logger.info(f"Executing tool: {tool_call.function.name} for email: {email}")
+                
                 base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
                 script_path = os.path.join(base_dir, "execution", "send_email.py")
                 template_path = os.path.join(base_dir, "directives", "templates", "onboarding.txt")
                 
                 execution_command = f"python {script_path} --to {email} --subject \"Welcome!\" --template {template_path}"
                 
-                return {
-                    "status": "executing",
-                    "message": f"Orchestrating tool: {tool_call.function.name}",
-                    "details": f"Spawning execution process for {email}...",
-                    "command_staged": execution_command
-                }
+                import asyncio
+                logger.info(f"Spawning shell: {execution_command}")
+                
+                # Execute the script asynchronously
+                process = await asyncio.create_subprocess_shell(
+                    execution_command,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                
+                stdout, stderr = await process.communicate()
+                
+                if process.returncode == 0:
+                    logger.info("Script executed successfully.")
+                    return {
+                        "status": "success",
+                        "message": f"Successfully executed onboarding for {email}!",
+                        "details": stdout.decode('utf-8').strip(),
+                        "command_staged": execution_command
+                    }
+                else:
+                    logger.error(f"Script failed with code {process.returncode}: {stderr.decode('utf-8')}")
+                    return {
+                        "status": "error",
+                        "message": f"Execution failed for {email}.",
+                        "details": stderr.decode('utf-8').strip()
+                    }
         
         content = response_message.content or ""
         
         # Fallback for LiteLLM tool leaking bug
         if "execute_function_name_placeholder" in content:
+            logger.warning("LiteLLM tool placeholder leaked into content.")
             return {
                 "status": "error",
                 "message": "The LLM model failed to trigger the internal tool correctly. Please try again."
             }
 
         # If no tool was called, return the text response
+        logger.info("No tool called. Returning raw text response.")
         return {
             "status": "success",
             "message": content
         }
 
     except Exception as e:
+        logger.error(f"Error during orchestrator process_command: {str(e)}", exc_info=True)
         return {
             "status": "error",
             "message": str(e)
