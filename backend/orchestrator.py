@@ -12,7 +12,7 @@ client = AsyncOpenAI(
     api_key=LITELLM_API_KEY
 )
 
-def get_system_prompt():
+def get_system_prompt(tools=None):
     """Reads AGENTS.md and all directives to construct the system prompt."""
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     
@@ -33,11 +33,20 @@ def get_system_prompt():
                 with open(os.path.join(directives_dir, filename), "r") as f:
                     system_prompt += f"--- {filename} ---\n{f.read()}\n\n"
     
+    if tools:
+        tool_names = [t["function"]["name"] for t in tools]
+        system_prompt += (
+            "CRITICAL INSTRUCTION:\n"
+            f"You have access to the following function tools: {', '.join(tool_names)}. "
+            "The directives above may mention running python scripts, bash commands, or MCP tools directly, "
+            "BUT you must map those instructions to one of the provided function tools. "
+            "DO NOT attempt to write bash commands, run python manually, or return placeholder text. "
+            "If a provided tool matches the intent of the directive, JUST CALL THE TOOL."
+        )
     return system_prompt
 
 async def process_command(user_command: str):
     """Sends the command to the LLM and orchestrates execution."""
-    system_prompt = get_system_prompt()
     
     # Define the tools (Execution layer scripts)
     tools = [
@@ -59,6 +68,8 @@ async def process_command(user_command: str):
             }
         }
     ]
+
+    system_prompt = get_system_prompt(tools)
 
     messages = [
         {"role": "system", "content": system_prompt},
@@ -97,10 +108,19 @@ async def process_command(user_command: str):
                     "command_staged": execution_command
                 }
         
+        content = response_message.content or ""
+        
+        # Fallback for LiteLLM tool leaking bug
+        if "execute_function_name_placeholder" in content:
+            return {
+                "status": "error",
+                "message": "The LLM model failed to trigger the internal tool correctly. Please try again."
+            }
+
         # If no tool was called, return the text response
         return {
             "status": "success",
-            "message": response_message.content
+            "message": content
         }
 
     except Exception as e:
