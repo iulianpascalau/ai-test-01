@@ -164,7 +164,7 @@ function Workspace({ token, onLogout }) {
               <div className="message-meta" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 {msg.role === 'agent' ? <Bot size={14} /> : null}
                 <span>{msg.role === 'agent' ? 'System' : 'You'}</span>
-                <span style={{ marginLeft: 'auto', fontSize: '11px', opacity: 0.5 }}>{msg.timestamp}</span>
+                <span style={{ marginLeft: 'auto', fontSize: '11px', opacity: 0.85 }}>{msg.timestamp}</span>
               </div>
               <div style={{ whiteSpace: 'pre-wrap' }}>{msg.content}</div>
             </div>
