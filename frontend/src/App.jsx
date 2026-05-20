@@ -180,10 +180,12 @@ function Workspace({ token, onLogout }) {
         const response = await axios.get(`${API_URL}/history`, {
           headers: { Authorization: `Bearer ${token}` }
         });
-        if (response.data && response.data.length > 0) {
+        if (response.data && Array.isArray(response.data) && response.data.length > 0) {
           setMessages(prev => {
             return [prev[0], ...response.data];
           });
+        } else if (typeof response.data === 'string') {
+          console.error("Received string/HTML instead of JSON. Check reverse proxy API routing.");
         }
       } catch (err) {
         console.error("Failed to load history", err);
