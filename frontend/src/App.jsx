@@ -87,6 +87,25 @@ function Workspace({ token, onLogout }) {
     scrollToBottom();
   }, [messages]);
 
+  useEffect(() => {
+    const fetchHistory = async () => {
+      try {
+        const response = await axios.get(`${API_URL}/history`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (response.data && response.data.length > 0) {
+          setMessages(prev => {
+            // Merge initial greeting with fetched history
+            return [prev[0], ...response.data];
+          });
+        }
+      } catch (err) {
+        console.error("Failed to load history", err);
+      }
+    };
+    fetchHistory();
+  }, [token]);
+
   const handleSend = async (e) => {
     e.preventDefault();
     if (!input.trim() || loading) return;

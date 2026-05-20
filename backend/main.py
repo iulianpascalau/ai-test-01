@@ -60,11 +60,34 @@ def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db:
 def read_users_me(current_user: models.User = Depends(auth.get_current_user)):
     return {"username": current_user.username}
 
+@app.get("/api/history")
+def get_history(db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    messages = db.query(models.Message).filter(models.Message.user_id == current_user.id).order_by(models.Message.timestamp.asc()).all()
+    return [
+        {
+            "id": msg.id,
+            "role": msg.role,
+            "content": msg.content,
+            "timestamp": msg.timestamp.strftime("%H:%M")
+        }
+        for msg in messages
+    ]
+
 class CommandRequest(BaseModel):
     command: str
 
 @app.post("/api/command")
-async def execute_command(req: CommandRequest, current_user: models.User = Depends(auth.get_current_user)):
+async def execute_command(req: CommandRequest, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
     """Protected endpoint to submit a command to the Orchestrator."""
+    user_msg = models.Message(user_id=current_user.id, role="user", content=req.command)
+    db.add(user_msg)
+    db.commit()
+    
     result = await orchestrator.process_command(req.command)
+    
+    display_content = result.get("message") or str(result)
+    agent_msg = models.Message(user_id=current_user.id, role="agent", content=display_content)
+    db.add(agent_msg)
+    db.commit()
+    
     return result
