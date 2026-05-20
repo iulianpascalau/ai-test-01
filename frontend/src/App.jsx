@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { Send, TerminalSquare, LogOut, Loader2, Bot, Settings as SettingsIcon, MessageSquare } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
 
 const API_URL = `http://${window.location.hostname}:8000/api`;
 
@@ -253,7 +254,9 @@ function Workspace({ token, onLogout }) {
                   <span>{msg.role === 'agent' ? 'System' : 'You'}</span>
                   <span style={{ marginLeft: 'auto', fontSize: '11px', opacity: 0.85 }}>{msg.timestamp}</span>
                 </div>
-                <div style={{ whiteSpace: 'pre-wrap' }}>{msg.content}</div>
+                <div className="markdown-body" style={{ whiteSpace: 'pre-wrap', fontSize: '14px', lineHeight: '1.6' }}>
+                  <ReactMarkdown>{msg.content}</ReactMarkdown>
+                </div>
               </div>
             ))}
             {loading && (
