@@ -64,7 +64,7 @@ function Login({ onLogin }) {
         {error && <div className="error-text">{error}</div>}
         
         <button type="submit" disabled={loading}>
-          {loading ? <Loader2 className="pulse" size={18} /> : 'Authenticate'}
+          {loading ? <Loader2 className="spin" size={18} /> : 'Authenticate'}
         </button>
       </form>
     </div>
@@ -258,7 +258,7 @@ function Workspace({ token, onLogout }) {
             ))}
             {loading && (
               <div className="message agent pulse" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                <Loader2 className="pulse" size={16} /> Orchestrating...
+                <Loader2 className="spin" size={16} /> Orchestrating...
               </div>
             )}
             <div ref={messagesEndRef} />
