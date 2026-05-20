@@ -252,3 +252,24 @@ button:disabled {
   padding: 0;
 }
 .markdown-body strong { color: #fff; }
+
+.markdown-body table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 16px 0;
+  font-size: 13px;
+}
+.markdown-body table th,
+.markdown-body table td {
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  padding: 8px 12px;
+  text-align: left;
+}
+.markdown-body table th {
+  background: rgba(0, 0, 0, 0.3);
+  font-weight: 600;
+  color: #fff;
+}
+.markdown-body table tr:nth-child(even) {
+  background: rgba(255, 255, 255, 0.02);
+}
