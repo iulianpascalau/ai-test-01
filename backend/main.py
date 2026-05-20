@@ -91,3 +91,31 @@ async def execute_command(req: CommandRequest, db: Session = Depends(get_db), cu
     db.commit()
     
     return result
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+class AddUserRequest(BaseModel):
+    username: str
+    password: str
+
+@app.post("/api/settings/change_password")
+def change_password(req: ChangePasswordRequest, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    if not auth.verify_password(req.current_password, current_user.hashed_password):
+        raise HTTPException(status_code=400, detail="Incorrect current password")
+    current_user.hashed_password = auth.get_password_hash(req.new_password)
+    db.commit()
+    return {"status": "success", "message": "Password updated successfully"}
+
+@app.post("/api/settings/add_user")
+def add_user(req: AddUserRequest, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    existing = db.query(models.User).filter(models.User.username == req.username).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Username already exists")
+    
+    hashed_pwd = auth.get_password_hash(req.password)
+    new_user = models.User(username=req.username, hashed_password=hashed_pwd)
+    db.add(new_user)
+    db.commit()
+    return {"status": "success", "message": f"User {req.username} created successfully"}

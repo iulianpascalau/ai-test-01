@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import { Send, TerminalSquare, LogOut, Loader2, Bot } from 'lucide-react';
+import { Send, TerminalSquare, LogOut, Loader2, Bot, Settings as SettingsIcon, MessageSquare } from 'lucide-react';
 
 const API_URL = `http://${window.location.hostname}:8000/api`;
 
@@ -71,7 +71,86 @@ function Login({ onLogin }) {
   );
 }
 
+function SettingsPanel({ token }) {
+  const [curPass, setCurPass] = useState('');
+  const [newPass, setNewPass] = useState('');
+  const [passMsg, setPassMsg] = useState('');
+  
+  const [newUsername, setNewUsername] = useState('');
+  const [newUserPass, setNewUserPass] = useState('');
+  const [userMsg, setUserMsg] = useState('');
+
+  const handleChangePassword = async (e) => {
+    e.preventDefault();
+    setPassMsg('Updating...');
+    try {
+      const res = await axios.post(`${API_URL}/settings/change_password`, 
+        { current_password: curPass, new_password: newPass },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      setPassMsg('✅ ' + res.data.message);
+      setCurPass(''); setNewPass('');
+    } catch (err) {
+      setPassMsg('❌ ' + (err.response?.data?.detail || err.message));
+    }
+  };
+
+  const handleAddUser = async (e) => {
+    e.preventDefault();
+    setUserMsg('Adding...');
+    try {
+      const res = await axios.post(`${API_URL}/settings/add_user`, 
+        { username: newUsername, password: newUserPass },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      setUserMsg('✅ ' + res.data.message);
+      setNewUsername(''); setNewUserPass('');
+    } catch (err) {
+      setUserMsg('❌ ' + (err.response?.data?.detail || err.message));
+    }
+  };
+
+  return (
+    <div className="glass-panel" style={{ padding: '30px', margin: '20px auto', maxWidth: '600px', width: '100%' }}>
+      <h2 style={{ marginBottom: '20px' }}>Settings</h2>
+      
+      <div style={{ marginBottom: '40px' }}>
+        <h3 style={{ marginBottom: '15px', color: 'var(--accent-color)' }}>Change Password</h3>
+        <form onSubmit={handleChangePassword} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+          <div className="input-group">
+            <label>Current Password</label>
+            <input type="password" value={curPass} onChange={e=>setCurPass(e.target.value)} required />
+          </div>
+          <div className="input-group">
+            <label>New Password</label>
+            <input type="password" value={newPass} onChange={e=>setNewPass(e.target.value)} required />
+          </div>
+          <button type="submit" style={{ alignSelf: 'flex-start' }}>Update Password</button>
+          {passMsg && <div style={{ fontSize: '14px', marginTop: '5px' }}>{passMsg}</div>}
+        </form>
+      </div>
+
+      <div>
+        <h3 style={{ marginBottom: '15px', color: 'var(--accent-color)' }}>Add New User</h3>
+        <form onSubmit={handleAddUser} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+          <div className="input-group">
+            <label>New Username</label>
+            <input type="text" value={newUsername} onChange={e=>setNewUsername(e.target.value)} required />
+          </div>
+          <div className="input-group">
+            <label>Password</label>
+            <input type="password" value={newUserPass} onChange={e=>setNewUserPass(e.target.value)} required />
+          </div>
+          <button type="submit" style={{ alignSelf: 'flex-start' }}>Create User</button>
+          {userMsg && <div style={{ fontSize: '14px', marginTop: '5px' }}>{userMsg}</div>}
+        </form>
+      </div>
+    </div>
+  );
+}
+
 function Workspace({ token, onLogout }) {
+  const [view, setView] = useState('chat'); // 'chat' or 'settings'
   const [messages, setMessages] = useState([
     { id: 1, role: 'agent', content: 'Agentic Environment initialized. Awaiting directives.', timestamp: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) }
   ]);
@@ -84,8 +163,10 @@ function Workspace({ token, onLogout }) {
   };
 
   useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
+    if (view === 'chat') {
+      scrollToBottom();
+    }
+  }, [messages, view]);
 
   useEffect(() => {
     const fetchHistory = async () => {
@@ -95,7 +176,6 @@ function Workspace({ token, onLogout }) {
         });
         if (response.data && response.data.length > 0) {
           setMessages(prev => {
-            // Merge initial greeting with fetched history
             return [prev[0], ...response.data];
           });
         }
@@ -121,7 +201,6 @@ function Workspace({ token, onLogout }) {
         { headers: { Authorization: `Bearer ${token}` } }
       );
       
-      // Parse the backend JSON response to display properly
       const data = response.data;
       let displayContent = data.message || JSON.stringify(data);
       if (data.status === 'executing') {
@@ -152,44 +231,53 @@ function Workspace({ token, onLogout }) {
           <TerminalSquare color="var(--accent-color)" />
           <h2 style={{ fontSize: '18px', fontWeight: 600 }}>Antigravity Interface</h2>
         </div>
-        <button onClick={onLogout} style={{ background: 'transparent', border: '1px solid var(--panel-border)', padding: '8px 16px' }}>
-          <LogOut size={16} /> <span style={{ marginLeft: '8px' }}>Disconnect</span>
-        </button>
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <button onClick={() => setView(view === 'chat' ? 'settings' : 'chat')} style={{ background: 'transparent', border: '1px solid var(--panel-border)', padding: '8px 16px' }}>
+            {view === 'chat' ? <><SettingsIcon size={16} /> <span style={{ marginLeft: '8px' }}>Settings</span></> : <><MessageSquare size={16} /> <span style={{ marginLeft: '8px' }}>Workspace</span></>}
+          </button>
+          <button onClick={onLogout} style={{ background: 'transparent', border: '1px solid var(--panel-border)', padding: '8px 16px' }}>
+            <LogOut size={16} /> <span style={{ marginLeft: '8px' }}>Disconnect</span>
+          </button>
+        </div>
       </header>
       
-      <main className="glass-panel chat-container">
-        <div className="chat-history">
-          {messages.map(msg => (
-            <div key={msg.id} className={`message ${msg.role}`}>
-              <div className="message-meta" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                {msg.role === 'agent' ? <Bot size={14} /> : null}
-                <span>{msg.role === 'agent' ? 'System' : 'You'}</span>
-                <span style={{ marginLeft: 'auto', fontSize: '11px', opacity: 0.85 }}>{msg.timestamp}</span>
+      {view === 'settings' ? (
+        <SettingsPanel token={token} />
+      ) : (
+        <main className="glass-panel chat-container">
+          <div className="chat-history">
+            {messages.map(msg => (
+              <div key={msg.id} className={`message ${msg.role}`}>
+                <div className="message-meta" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  {msg.role === 'agent' ? <Bot size={14} /> : null}
+                  <span>{msg.role === 'agent' ? 'System' : 'You'}</span>
+                  <span style={{ marginLeft: 'auto', fontSize: '11px', opacity: 0.85 }}>{msg.timestamp}</span>
+                </div>
+                <div style={{ whiteSpace: 'pre-wrap' }}>{msg.content}</div>
               </div>
-              <div style={{ whiteSpace: 'pre-wrap' }}>{msg.content}</div>
-            </div>
-          ))}
-          {loading && (
-            <div className="message agent pulse" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-              <Loader2 className="pulse" size={16} /> Orchestrating...
-            </div>
-          )}
-          <div ref={messagesEndRef} />
-        </div>
-        
-        <form onSubmit={handleSend} className="chat-input-area">
-          <input 
-            type="text" 
-            value={input} 
-            onChange={e => setInput(e.target.value)} 
-            placeholder="Issue a command to the environment..."
-            autoFocus
-          />
-          <button type="submit" disabled={loading || !input.trim()}>
-            <Send size={18} />
-          </button>
-        </form>
-      </main>
+            ))}
+            {loading && (
+              <div className="message agent pulse" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <Loader2 className="pulse" size={16} /> Orchestrating...
+              </div>
+            )}
+            <div ref={messagesEndRef} />
+          </div>
+          
+          <form onSubmit={handleSend} className="chat-input-area">
+            <input 
+              type="text" 
+              value={input} 
+              onChange={e => setInput(e.target.value)} 
+              placeholder="Issue a command to the environment..."
+              autoFocus
+            />
+            <button type="submit" disabled={loading || !input.trim()}>
+              <Send size={18} />
+            </button>
+          </form>
+        </main>
+      )}
     </div>
   );
 }
