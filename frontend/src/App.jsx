@@ -4,7 +4,11 @@ import { Send, TerminalSquare, LogOut, Loader2, Bot, Settings as SettingsIcon, M
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
-const API_URL = `http://${window.location.hostname}:8000/api`;
+// If served over HTTPS, assume a reverse proxy (Nginx/Cloudflare) routes /api to the backend.
+// Otherwise, explicitly point to the local port 8000.
+const API_URL = window.location.protocol === 'https:' 
+  ? '/api' 
+  : `http://${window.location.hostname}:8000/api`;
 
 function App() {
   const [token, setToken] = useState(localStorage.getItem('token'));
