@@ -1,7 +1,7 @@
 import os
 import io
 import tempfile
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Form
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
@@ -24,7 +24,7 @@ tts_model = TTS("tts_models/multilingual/multi-dataset/xtts_v2").to("cuda")
 SPEAKER_WAV_PATH = "speaker.wav"
 
 @app.post("/transcribe")
-async def transcribe_audio(file: UploadFile = File(...)):
+async def transcribe_audio(file: UploadFile = File(...), language: str = Form(None)):
     """Receives a WAV/WEBM file from the frontend, transcribes it to text."""
     try:
         # Save uploaded file to a temporary location
@@ -34,7 +34,10 @@ async def transcribe_audio(file: UploadFile = File(...)):
             tmp_path = tmp.name
 
         # Transcribe using faster-whisper
-        segments, info = whisper_model.transcribe(tmp_path, beam_size=5)
+        if language:
+            segments, info = whisper_model.transcribe(tmp_path, beam_size=5, language=language)
+        else:
+            segments, info = whisper_model.transcribe(tmp_path, beam_size=5)
         
         text = " ".join([segment.text for segment in segments]).strip()
         
