@@ -150,5 +150,9 @@ async def synthesize(req: SynthesizeRequest, current_user: models.User = Depends
                 resp.iter_bytes(),
                 media_type="audio/wav"
             )
+        except httpx.HTTPStatusError as e:
+            error_detail = e.response.text
+            print("Audio Server Error:", error_detail)
+            raise HTTPException(status_code=e.response.status_code, detail=f"Audio Server Error: {error_detail}")
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))

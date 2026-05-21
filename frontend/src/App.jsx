@@ -215,7 +215,7 @@ function Workspace({ token, onLogout }) {
 
   const playTTS = async (text) => {
     try {
-      const res = await axios.post(`${API_URL}/synthesize`, { text, language: audioLanguage }, {
+      const res = await axios.post(`${API_URL}/synthesize`, { text, language: 'en' }, {
         headers: { Authorization: `Bearer ${token}` },
         responseType: 'blob'
       });
@@ -343,7 +343,7 @@ function Workspace({ token, onLogout }) {
           </div>
           
           <div style={{ display: 'flex', gap: '15px', padding: '0 20px', marginBottom: '8px', justifyContent: 'flex-end', fontSize: '13px', color: 'var(--text-muted)' }}>
-            <span>Audio Language:</span>
+            <span>Audio Input Language:</span>
             <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
               <input type="radio" name="lang" value="en" checked={audioLanguage === 'en'} onChange={(e) => setAudioLanguage(e.target.value)} /> EN
             </label>
