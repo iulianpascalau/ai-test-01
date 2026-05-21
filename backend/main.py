@@ -1,4 +1,6 @@
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File
+from fastapi.responses import StreamingResponse
+import httpx
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -119,3 +121,32 @@ def add_user(req: AddUserRequest, db: Session = Depends(get_db), current_user: m
     db.add(new_user)
     db.commit()
     return {"status": "success", "message": f"User {req.username} created successfully"}
+
+@app.post("/api/transcribe")
+async def transcribe(file: UploadFile = File(...), current_user: models.User = Depends(auth.get_current_user)):
+    """Receives audio file from UI, forwards it to the LLM VM, and returns the transcribed text."""
+    async with httpx.AsyncClient() as client:
+        try:
+            files = {'file': (file.filename, await file.read(), file.content_type)}
+            resp = await client.post(f"{config.AUDIO_SERVER_URL}/transcribe", files=files, timeout=60.0)
+            resp.raise_for_status()
+            return resp.json()
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+class SynthesizeRequest(BaseModel):
+    text: str
+    
+@app.post("/api/synthesize")
+async def synthesize(req: SynthesizeRequest, current_user: models.User = Depends(auth.get_current_user)):
+    """Receives text from UI, forwards it to the LLM VM, and streams back the generated TTS audio."""
+    async with httpx.AsyncClient() as client:
+        try:
+            resp = await client.post(f"{config.AUDIO_SERVER_URL}/synthesize", json={"text": req.text, "language": "en"}, timeout=60.0)
+            resp.raise_for_status()
+            return StreamingResponse(
+                resp.iter_bytes(),
+                media_type="audio/wav"
+            )
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))

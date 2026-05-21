@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import { Send, TerminalSquare, LogOut, Loader2, Bot, Settings as SettingsIcon, MessageSquare } from 'lucide-react';
+import { Send, TerminalSquare, LogOut, Loader2, Bot, Settings as SettingsIcon, MessageSquare, Mic, MicOff, Volume2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -164,6 +164,66 @@ function Workspace({ token, onLogout }) {
   const [loading, setLoading] = useState(false);
   const messagesEndRef = useRef(null);
 
+  const [isRecording, setIsRecording] = useState(false);
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
+
+  const toggleRecording = async () => {
+    if (isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+    } else {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorderRef.current = new MediaRecorder(stream);
+        audioChunksRef.current = [];
+        
+        mediaRecorderRef.current.ondataavailable = e => {
+          if (e.data.size > 0) audioChunksRef.current.push(e.data);
+        };
+        
+        mediaRecorderRef.current.onstop = async () => {
+          const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+          const formData = new FormData();
+          formData.append('file', audioBlob, 'voice.webm');
+          
+          try {
+            setLoading(true);
+            const res = await axios.post(`${API_URL}/transcribe`, formData, {
+              headers: { Authorization: `Bearer ${token}` }
+            });
+            setInput(prev => prev + (prev ? ' ' : '') + res.data.text);
+          } catch (err) {
+            console.error('Transcription failed:', err);
+          } finally {
+            setLoading(false);
+          }
+          // Cleanup microphone usage
+          stream.getTracks().forEach(track => track.stop());
+        };
+        
+        mediaRecorderRef.current.start();
+        setIsRecording(true);
+      } catch (err) {
+        console.error("Mic access denied:", err);
+      }
+    }
+  };
+
+  const playTTS = async (text) => {
+    try {
+      const res = await axios.post(`${API_URL}/synthesize`, { text }, {
+        headers: { Authorization: `Bearer ${token}` },
+        responseType: 'blob'
+      });
+      const url = URL.createObjectURL(res.data);
+      const audio = new Audio(url);
+      audio.play();
+    } catch (err) {
+      console.error("TTS failed:", err);
+    }
+  };
+
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
@@ -259,6 +319,11 @@ function Workspace({ token, onLogout }) {
                 <div className="message-meta" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                   {msg.role === 'agent' ? <Bot size={14} /> : null}
                   <span>{msg.role === 'agent' ? 'System' : 'You'}</span>
+                  {msg.role === 'agent' && (
+                    <button onClick={() => playTTS(msg.content)} style={{ background: 'none', border: 'none', padding: '0', cursor: 'pointer', marginLeft: '4px' }} title="Read Out Loud">
+                      <Volume2 size={14} color="var(--accent-color)" />
+                    </button>
+                  )}
                   <span style={{ marginLeft: 'auto', fontSize: '11px', opacity: 0.85 }}>{msg.timestamp}</span>
                 </div>
                 <div className="markdown-body" style={{ whiteSpace: 'pre-wrap', fontSize: '14px', lineHeight: '1.6' }}>
@@ -275,6 +340,9 @@ function Workspace({ token, onLogout }) {
           </div>
           
           <form onSubmit={handleSend} className="chat-input-area">
+            <button type="button" onClick={toggleRecording} style={{ background: isRecording ? '#ef4444' : 'transparent', color: isRecording ? '#fff' : 'var(--text-color)', border: '1px solid var(--panel-border)', display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: '40px' }} title="Hold to speak">
+              {isRecording ? <MicOff size={18} /> : <Mic size={18} />}
+            </button>
             <input 
               type="text" 
               value={input} 
